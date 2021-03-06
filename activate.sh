@@ -2,6 +2,7 @@ AUTOENV_AUTH_FILE="${AUTOENV_AUTH_FILE:-$HOME/.autoenv_authorized}"
 AUTOENV_ENV_FILENAME="${AUTOENV_ENV_FILENAME:-.env}"
 AUTOENV_ENV_LEAVE_FILENAME="${AUTOENV_ENV_LEAVE_FILENAME:-.env.leave}"
 # AUTOENV_ENABLE_LEAVE
+# AUTOENV_ACTIVATED_ENVS
 
 autoenv_init() {
 
@@ -62,7 +63,7 @@ ${_orderedfiles}"
 
 	# Execute the env files
 	for _file in ${_orderedfiles}; do
-		autoenv_check_authz_and_run "${_file}"
+		autoenv_enter "${_file}"
 	done
 	IFS="${origIFS}"
 	# Enable file globbing
@@ -71,6 +72,64 @@ ${_orderedfiles}"
 	# ZSH: Unset shwordsplit
 	if [ -z "${zsh_shwordsplit}" ]; then
 		\unsetopt shwordsplit >/dev/null 2>&1
+	fi
+}
+
+autoenv_enter() {
+	local _envfile _env
+	_envfile="${1}"
+	_env="$(dirname "${_envfile}")"
+	# If _env is already activated, skip it
+	if autoenv_is_activated "${_env}"; then
+		\return 0
+	fi
+	# If _envfile is sourced, add _env to activated envs
+	if autoenv_check_authz_and_run "${_envfile}"; then
+		autoenv_add_activated "${_env}"
+	fi
+}
+
+autoenv_leave() {
+	local _enter_dir _activated_envs _file _origIFS
+	_enter_dir="${PWD}"
+	_origIFS="${IFS}"
+	IFS=':'
+	# If we are entering a non-subdirectory of an activated env, disable the env
+	# Clear activated envs list, and add envs which are not deactivated
+	_activated_envs="${AUTOENV_ACTIVATED_ENVS}"
+	AUTOENV_ACTIVATED_ENVS=""
+	for _env in ${_activated_envs}; do
+		if [[ "${_enter_dir}/" != ${_env}/* ]]; then
+			# If _enter_dir does not start with _env, disable _env
+			_file="${_env}/${AUTOENV_ENV_LEAVE_FILENAME}"
+			# If _file exists and sourced, don't add _env back (i.e. remove it from list)
+			if [ -f "${_file}" ] && autoenv_check_authz_and_run "${_file}"; then
+				continue
+			fi
+		fi
+		autoenv_add_activated "${_env}"
+	done
+	IFS="${_origIFS}"
+}
+
+autoenv_add_activated() {
+	local _env
+	_env="${1}"
+	if [ -z "${AUTOENV_ACTIVATED_ENVS}" ]; then
+		AUTOENV_ACTIVATED_ENVS="${_env}"
+	else
+		AUTOENV_ACTIVATED_ENVS="${AUTOENV_ACTIVATED_ENVS}:${_env}"
+	fi
+}
+
+autoenv_is_activated() {
+	local _env
+	_env="${1}"
+	# idk how to create one-liner here
+	if [[ :$AUTOENV_ACTIVATED_ENVS: == *:"${_env}":* ]] ; then
+		return 0
+	else
+		return 1
 	fi
 }
 
@@ -99,8 +158,8 @@ autoenv_check_authz_and_run() {
 	if [ -n "${AUTOENV_ASSUME_YES}" ]; then # Don't ask for permission if "assume yes" is switched on
 		autoenv_authorize_env "${_envfile}"
 		autoenv_source "${_envfile}"
-                \return 0
-        fi
+		\return 0
+	fi
 	if [ -z "${MC_SID}" ]; then # Make sure mc is not running
 		\echo "autoenv:"
 		\echo "autoenv: WARNING:"
@@ -116,8 +175,10 @@ autoenv_check_authz_and_run() {
 		if [ "${answer}" = "y" ] || [ "${answer}" = "Y" ]; then
 			autoenv_authorize_env "${_envfile}"
 			autoenv_source "${_envfile}"
+			\return 0
 		fi
 	fi
+	\return 1
 }
 
 autoenv_deauthorize_env() {
@@ -160,14 +221,6 @@ autoenv_cd() {
 	else
 		\return "${?}"
 	fi
-}
-
-autoenv_leave() {
-	# execute file when leaving a directory
-	local target_file dir
-	dir="${@}"
-	target_file="${dir}/${AUTOENV_ENV_LEAVE_FILENAME}"
-	[ -f "${target_file}" ] && autoenv_check_authz_and_run "${target_file}"
 }
 
 # Override the cd alias
