@@ -5,6 +5,12 @@ AUTOENV_ENV_LEAVE_FILENAME="${AUTOENV_ENV_LEAVE_FILENAME:-.env.leave}"
 # AUTOENV_ACTIVATED_ENVS
 
 autoenv_chpwd_hook() {
+	if [ -n "$AUTOENV_HOOK_RUNNING" ]; then
+		\return
+	else
+		AUTOENV_HOOK_RUNNING=true
+	fi
+
 	if [ -n "$AUTOENV_ENABLE_LEAVE" ]; then
 		autoenv_leave
 	fi
@@ -16,7 +22,7 @@ autoenv_chpwd_hook() {
 	# Remove double slashes, see #125
 	_pwd=$(\echo "${PWD}" | \sed "${_sedregexp}" 's:/+:/:g')
 	# Discover all files we need to source
-	# We do this in a subshell so we can cd/chdir
+	# We do this in a subshell so we can cd/chdir (but zsh' hook still works there)
 	_files=$(
 		\command -v chdir >/dev/null 2>&1 && \chdir "${_pwd}" || builtin cd "${_pwd}"
 		_hadone=''
@@ -72,6 +78,8 @@ ${_orderedfiles}"
 	if [ -z "${zsh_shwordsplit}" ]; then
 		\unsetopt shwordsplit >/dev/null 2>&1
 	fi
+
+	unset AUTOENV_HOOK_RUNNING
 }
 
 autoenv_enter() {
@@ -222,23 +230,29 @@ autoenv_cd() {
 	fi
 }
 
-# Override the cd alias
-if setopt 2> /dev/null | grep -q aliasfuncdef; then
-	has_alias_func_def_enabled=true;
+# Detect changing directory either with chpwd hook or by overriding the cd alias
+if [ -n "`which add-zsh-hook`" ]; then
+	enable_autoenv() {
+		add-zsh-hook chpwd autoenv_chpwd_hook
+	}
 else
-	setopt ALIAS_FUNC_DEF 2> /dev/null
-fi
+	if setopt 2> /dev/null | grep -q aliasfuncdef; then
+		has_alias_func_def_enabled=true;
+	else
+		setopt ALIAS_FUNC_DEF 2> /dev/null
+	fi
 
-enable_autoenv() {
-	cd() {
-		autoenv_cd "${@}"
+	enable_autoenv() {
+		cd() {
+			autoenv_cd "${@}"
+		}
+
+		cd "${PWD}"
 	}
 
-	cd "${PWD}"
-}
-
-if ! $has_alias_func_def_enabled; then
-	unsetopt ALIAS_FUNC_DEF 2> /dev/null
+	if ! $has_alias_func_def_enabled; then
+		unsetopt ALIAS_FUNC_DEF 2> /dev/null
+	fi
 fi
 
 # Probe to see if we have access to a shasum command, otherwise disable autoenv
