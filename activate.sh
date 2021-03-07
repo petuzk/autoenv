@@ -4,10 +4,9 @@ AUTOENV_ENV_LEAVE_FILENAME="${AUTOENV_ENV_LEAVE_FILENAME:-.env.leave}"
 # AUTOENV_ENABLE_LEAVE
 # AUTOENV_ACTIVATED_ENVS
 
-autoenv_init() {
-
+autoenv_chpwd_hook() {
 	if [ -n "$AUTOENV_ENABLE_LEAVE" ]; then
-		autoenv_leave "$@"
+		autoenv_leave
 	fi
 
 	local _mountpoint _files _orderedfiles _sedregexp _pwd
@@ -216,7 +215,7 @@ autoenv_cd() {
 	_pwd=${PWD}
 	\command -v chdir >/dev/null 2>&1 && \chdir "${@}" || builtin cd "${@}"
 	if [ "${?}" -eq 0 ]; then
-		autoenv_init "${_pwd}"
+		autoenv_chpwd_hook
 		\return 0
 	else
 		\return "${?}"
